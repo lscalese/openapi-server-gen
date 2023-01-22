@@ -1,0 +1,435 @@
+Class dc.openapi.server.RESTGenerator Extends (%RegisteredObject, dc.openapi.common.Generator)
+{
+
+Parameter ROUTETEMPLATE = "  <Route Url=""%1"" Method=""%2"" Call=""%3"" />";
+
+Property superModel As %String [ InitialExpression = "%RegisteredObject" ];
+
+Property restClassName As %String;
+
+Property implClassName As %String;
+
+Property routes As %Stream.GlobalCharacter [ Private ];
+
+Property tmp As %String [ Private ];
+
+Method %OnNew(specification As %DynamicObject, application) As %Status
+{
+    Set sc = $$$OK
+
+    Set ..spec = specification
+    Set ..application = application
+    Set ..packageModel = ..application _ "." _ ..#PKGMODEL
+    Set ..packageRequest = ..application _ "." _ ..#PKGREQUEST
+    Set ..restClassName = ..application _ ".disp"
+    Set ..implClassName = ..application _ ".impl"
+
+    Quit sc
+}
+
+Method Generate() As %Status
+{
+    Set sc = $$$OK
+
+    Set sc = $$$ADDSC(sc, ..GenerateModels())
+
+    Set sc = $$$ADDSC(sc, ..IterateOnOperation("GenerateRequestClass"))
+
+    Set sc = $$$ADDSC(sc, ..IterateOnOperation("GenerateLoadFromRequestMethod"))
+
+    Set sc = $$$ADDSC(sc, ..IterateOnOperation("GenerateRequestValidate"))
+
+    Set sc = $$$ADDSC(sc, ..GenerateREST())
+
+    Quit sc
+}
+
+Method GenerateModels() As %Status
+{
+    $$$zlog("* Start model generation in package " _ ..packageModel)
+
+    #dim modelGenerator As Grongier.OpenApi.DefinitionV3 = ##class(Grongier.OpenApi.DefinitionV3).%New(..spec, ..packageModel, , $$$NO)
+    Set modelGenerator.super = ..superModel
+
+    Set sc = modelGenerator.GenerateClasses()
+
+    $$$zlog("= Models generation status : " _ $SYSTEM.Status.GetOneErrorText(sc))
+
+    Quit sc
+}
+
+Method GenerateLoadFromRequestMethod(path As %String, pathItem As %DynamicObject, method As %String, operation As %DynamicObject) As %Status
+{
+    Set sc = $$$OK
+    #dim propDef As %Dictionary.PropertyDefinition
+    Set sc = $$$OK
+
+    Do ..CheckAndGenerateOperationId(method, .operation, path)
+
+    Set className = ..packageRequest _ "." _ operation.operationId
+
+    Set classDef = ##class(%Dictionary.ClassDefinition).%OpenId(className,,.sc)
+
+    If $$$ISERR(sc) {
+        $$$zlog($Char(9) _"+ Can't add LoadFromRequest method to  " _ className _ "(class definition does not exist)")
+        Quit sc
+    }
+
+    $$$zlog($Char(9) _"+ Add LoadFromRequest method to  " _ className)
+
+    Set methodDef = ##class(%Dictionary.MethodDefinition).%New()
+    Set methodDef.Name = "LoadFromRequest"
+    Set methodDef.Description = "Load object properties from %CSP.Request object."
+    Set methodDef.FormalSpec = "request:%CSP.Request=%request"
+    Set methodDef.ClassMethod = $$$NO
+    Set methodDef.ReturnType = "%Status"
+    Do classDef.Methods.Insert(methodDef)
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "Set sc = $$$OK")
+
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "Set ..%ContentType = $Piece(request.ContentType, "";"", 1)")
+    
+    Set parameters = ..GetOperationParameters(pathItem, operation)
+
+    Set parameterIterator = parameters.%GetIterator()
+    While parameterIterator.%GetNext(.key, .parameter) {
+
+        ; parameter is a parameter object https://swagger.io/specification/#parameter-object
+        
+        Set:parameter."$ref"'="" parameter = ##class(dc.openapi.common.Utils).GetObjectByRef(..spec, parameter."$ref", .name)
+        
+        Continue:'$IsObject(parameter)
+        Continue:parameter.name=""
+        Continue:parameter.in=""
+
+        Set propDef = $$$FindPropertyName(classDef, $$$NormalizePropertyParamName(parameter.in_parameter.name))
+        If '$IsObject(propDef) {
+            Set errMsg = $$$FormatText("Property definition %1 not found in class %2", parameter.in_parameter.name, classDef.Name)
+            $$$zlog($Char(9) _ "! " _ errMsg)
+            Set sc = $$$ADDSC(sc, $$$ERROR(5001, errMsg))
+            Continue
+        }
+
+        Set parameterPropertyName = $$$CodeNormalizeProperty($$$NormalizePropertyParamName(parameter.in_parameter.name))
+
+        If parameter.in = "header" {
+            Do methodDef.Implementation.WriteLine( $Char(9) _ "Set .." _ parameterPropertyName _ " = $Get(request.GetCgiEnv(""HTTP_" _ $ZCVT(parameter.name,"U") _ """))" )
+        } ElseIf parameter.in = "path" {
+            ; Must be managed out of this method.
+            Do methodDef.Implementation.WriteLine( $Char(9) _ ";" _ parameterPropertyName _ " must be set out of this method")
+        } ElseIf parameter.in = "query" {
+            If propDef.Collection '= "" {
+                Do methodDef.Implementation.WriteLine( $Char(9) _ "Set key = """"")
+                Do methodDef.Implementation.WriteLine( $Char(9) _ "For  {")
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Set key = $Order(request.Data(""" _ parameter.name _""", key), 1, tmpValue)")
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Quit:key=""""")
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do .." _ parameterPropertyName _ ".Insert(tmpValue)")
+                Do methodDef.Implementation.WriteLine( $Char(9) _ "}")
+            } Else {
+                Do methodDef.Implementation.WriteLine( $Char(9) _ "Set .." _ parameterPropertyName _ " = $Get(request.Data(""" _ parameter.name _""",1))" )
+            }
+        }
+
+    }
+
+    If '$ISOBJECT(operation.requestBody) {
+        Do methodDef.Implementation.WriteLine( $Char(9) _ "Quit sc")
+        Quit $$$ADDSC(sc, classDef.%Save())
+    }
+
+    Set bodyContentIterator = operation.requestBody.content.%GetIterator()
+    
+    
+
+    While bodyContentIterator.%GetNext(.contentType, .contentTypeItem) {
+        
+        Continue:'$IsObject(contentTypeItem.schema)
+
+        Set condition = $$$FormatText("If ..%ContentType = ""%1""", $$$LOWER(contentType))
+        
+        If 'contentTypeItem.%IsDefined("schema") {
+            Set:'$Data(tmp(0),propertyName) propertyName = $$$NormalizePropertyParamName("body") _ $INCREMENT(body)
+            Continue
+        }
+        
+        Set hash = $ZCRC(contentTypeItem.schema.%ToJSON(), 7)
+        
+        Set:'$Data(tmp(hash),propertyName) propertyName = $$$NormalizePropertyParamName("body") _ $INCREMENT(body), tmp(hash) = propertyName
+
+        Set propDef = $$$FindPropertyName(classDef, $$$NormalizePropertyParamName(propertyName))
+        If '$IsObject(propDef) {
+            Set errMsg = $$$FormatText("Property definition %1 not found in class %2", propertyName, classDef.Name)
+            $$$zlog($Char(9) _ "! " _ errMsg)
+            Set sc = $$$ADDSC(sc, $$$ERROR(5001, errMsg))
+            Continue
+        }
+
+        If $$$LOWER(contentType) [ "application/json" {
+            If propDef.Collection '= "" {
+                Do methodDef.Implementation.WriteLine( $Char(9) _ condition _ "{")
+                Do methodDef.Implementation.WriteLine( "" )
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Set key = """", array = [].%FromJSON(request.Content), iterator = array.%GetIterator()")
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "While iterator.%GetNext(.index, .item) {")
+                Do methodDef.Implementation.WriteLine( $Char(9,9,9) _ $$$FormatText("Set tmpObject = ##class(%1).%New()", propDef.Type ))
+                Do methodDef.Implementation.WriteLine( $Char(9,9,9) _ "Do tmpObject.%JSONImport(item)")
+                Do methodDef.Implementation.WriteLine( $Char(9,9,9) _ "Do .." _ $$$CodeNormalizeProperty(propDef.Name)_".Insert(tmpObject)")
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "}")
+                Do methodDef.Implementation.WriteLine( $Char(9) _ "}")
+            } Else {
+                Do methodDef.Implementation.WriteLine( $Char(9) _ condition _ "{")
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do .." _ $$$CodeNormalizeProperty(propDef.Name)_"NewObject().%JSONImport(request.Content)")
+                Do methodDef.Implementation.WriteLine( $Char(9) _ "}" )
+            }
+
+        } ElseIf ($$$LOWER(contentType) [ "multipart/form-data") {
+            
+            Do methodDef.Implementation.WriteLine( $Char(9) _ condition _ "{")
+
+            If propDef.Type = "%Stream.GlobalBinary" {
+                ;Do methodDef.Implementation.WriteLine( $Char(9,9) _ "")
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Set mime = request.GetMimeData(""" _ propertyName _ """)")
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do:$IsObject(mime) .." _ $$$CodeNormalizeProperty(propertyName) _ ".CopyFrom(mime)")
+            } Else {
+                ; todo ...
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "; To implement.  There is no code generation yet for this case.")
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "$$$ThrowStatus($$$ERROR($$$NotImplemented))")
+            }
+
+            Do methodDef.Implementation.WriteLine( $Char(9) _ "}")
+        
+        } ElseIf $$$LOWER(contentType) [ "application/octet-stream" {
+            Do methodDef.Implementation.WriteLine( $Char(9) _ condition _ "{")
+
+            If propDef.Type = "%Stream.GlobalBinary" {
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do .." _ $$$CodeNormalizeProperty(propDef.Name) _ ".CopyFrom(request.Content)" )
+            } Else {
+                
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "; To implement.  There is no code generation for this case.")
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "$$$ThrowStatus($$$ERROR($$$NotImplemented))")
+            }
+
+            Do methodDef.Implementation.WriteLine( $Char(9) _ "}")
+
+        } Else {
+            Do methodDef.Implementation.WriteLine( $Char(9) _ condition _" {")
+            Do methodDef.Implementation.WriteLine( $Char(9,9) _ "; To implement.  There is no code generation yet for this case.")
+            Do methodDef.Implementation.WriteLine( $Char(9,9) _ "$$$ThrowStatus($$$ERROR($$$NotImplemented))")
+            Do methodDef.Implementation.WriteLine( $Char(9) _ "}")
+        }
+        
+    }
+
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "Quit sc")
+
+    Set sc = classDef.%Save()
+
+    Quit sc
+}
+
+Method GenerateREST() As %Status
+{
+    Set sc = $$$OK
+
+    Set className = ..restClassName
+    $$$zlog($Char(9) _"Class name is " _ className)
+
+    $$$zlog("* Generate class " _ className)
+
+    #dim classDef As %Dictionary.ClassDefinition
+    $$$QuitOnError(##class(dc.openapi.common.Utils).CreateClassDefInstance(className, .classDef))
+    Set classDef.Super = "%CSP.REST"
+
+    #dim parameter As %Dictionary.ParameterDefinition
+    Set parameter = ##class(%Dictionary.ParameterDefinition).%New()
+    Set parameter.Name = "SpecificationClass"
+    Set parameter.Default = ..application _ ".Spec"
+    Do classDef.Parameters.Insert(parameter)
+
+    Set parameter = ##class(%Dictionary.ParameterDefinition).%New()
+    Set parameter.Name = "IgnoreWrites"
+    Set parameter.Default = "1"
+    Do classDef.Parameters.Insert(parameter)
+
+    Set parameter = ##class(%Dictionary.ParameterDefinition).%New()
+    Set parameter.Name = "CONVERTINPUTSTREAM"
+    Set parameter.Default = "1"
+    Do classDef.Parameters.Insert(parameter)
+
+    Set parameter = ##class(%Dictionary.ParameterDefinition).%New()
+    Set parameter.Name = "CHARSET"
+    Set parameter.Default = "utf-8"
+    Do classDef.Parameters.Insert(parameter)
+
+    Do ..routes.WriteLine("<Routes>")
+    Set sc = $$$ADDSC(sc, ..IterateOnOperation("AddRoute"))
+    Do ..routes.WriteLine($$$FormatText(..#ROUTETEMPLATE, "/_spec", "get", "SwaggerSpec"))
+    Do ..routes.WriteLine("</Routes>")
+    
+    #dim xData As %Dictionary.XDataDefinition = ##class(%Dictionary.XDataDefinition).%New()
+    Set xData.Name = "UrlMap", xData.XMLNamespace = "http://www.intersystems.com/urlmap"
+    Do xData.Data.CopyFrom(..routes)
+    Do classDef.XDatas.Insert(xData)
+
+    Set sc = $$$ADDSC(sc, classDef.%Save())
+
+    Set sc = $$$ADDSC(sc, ..IterateOnOperation("AddDispMethod"))
+    
+
+    Quit sc
+}
+
+Method AddRoute(path As %String, pathItem As %DynamicObject, method As %String, operation As %DynamicObject) As %Status
+{
+    Quit ..routes.WriteLine($$$FormatText(..#ROUTETEMPLATE, $Translate(path, "{}", ":"), $ZConvert(method, "U"), operation.operationId))
+}
+
+Method AddDispMethod(path As %String, pathItem As %DynamicObject, method As %String, operation As %DynamicObject) As %Status
+{
+    Set className = ..restClassName, messageRequestClass = ..packageRequest _ "." _ operation.operationId
+
+    Set classDef = ##class(%Dictionary.ClassDefinition).%OpenId(className,,.sc)
+
+    If $$$ISERR(sc) {
+        $$$zlog($Char(9) _"+ Can't add "_ operation.operationId _" method to  " _ className _ "(class definition does not exist)")
+        Quit sc
+    }
+
+    $$$zlog($Char(9) _"+ Add "_ operation.operationId _ " method to " _ className)
+
+    Set methodDef = ##class(%Dictionary.MethodDefinition).%New()
+    Set methodDef.Name = operation.operationId
+    Set methodDef.Description = "Process request " _ method _ " " _ path
+    Set methodDef.ClassMethod = $$$NO
+    Set methodDef.ReturnType = "%Status"
+    Do classDef.Methods.Insert(methodDef)
+    Do ..AlimPathParamList(path, .pathParam)
+    Set key = "", setPathParamLine = ""
+    For  {
+        Set key = $Order(pathParam(key), 1, pathParamName)
+        Quit:key=""
+        Set methodDef.FormalSpec = methodDef.FormalSpec _ "," _ pathParamName_":%String"
+        Set setPathParamLine = $Select(setPathParamLine="": "Set requestMessage.path" _ pathParamName _" = "_pathParamName,1:setPathParamLine _ ", requestMessage.path" _ pathParamName _" = "_pathParamName)
+    }
+    Set methodDef.FormalSpec = $Extract(methodDef.FormalSpec, 2, *)
+
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "Set sc = $$$OK")
+    
+    Set listContentType = ""
+    If $IsObject(operation.requestBody), $IsObject(operation.requestBody.content) {
+        ; media type here.
+        Set contentTypeIterator = operation.requestBody.content.%GetIterator()
+        While contentTypeIterator.%GetNext(.contentType, .contentTypeItem) {
+            Set $List(listContentType,*+1) = $$$LOWER(contentType)
+        }
+    }
+   
+    Set ..tmp = ""
+    Do ..IterateOnResponses("AlimCheckAccept")
+    Set accept = ..tmp, ..tmp = "" ; "application/json" ;
+    
+    Set implMethodName = operation.operationId ;
+
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "Try{")
+    Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("Set acceptedMedia = $ListFromString(""%1"")", $ListToString(listContentType)))
+    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "If '$ListFind(acceptedMedia,$$$LOWER(%request.ContenType)) {")
+    Do methodDef.Implementation.WriteLine( $Char(9,9,9) _ " Do ##class(%REST.Impl).%ReportRESTError(..#HTTP415UNSUPPORTEDMEDIATYPE,$$$ERROR($$$RESTContentType,%request.ContentType)) Quit")
+    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "}")
+
+    Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("Do ##class(%REST.Impl).%SetContentType(%1)", "$Get(%request.CgiEnvs(""HTTP_ACCEPT""))" ))
+    Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("If '##class(%REST.Impl).%CheckAccepts(""%1"") Do ##class(%REST.Impl).%ReportRESTError(..#HTTP406NOTACCEPTABLE,$$$ERROR($$$RESTBadAccepts)) Quit", accept ))
+    
+    If operation.requestBody.required||(operation.requestBody.required="true") {
+        Do methodDef.Implementation.WriteLine( $Char(9,9) _ "If '$isobject(%request.Content) Do ##class(%REST.Impl).%ReportRESTError(..#HTTP400BADREQUEST,$$$ERROR($$$RESTRequired,""body"")) Quit")
+    }
+
+    Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("Set requestMessage = ##class(%1).%New()", messageRequestClass))
+    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do requestMessage.LoadFromRequest(%request)")
+    Do:setPathParamLine'="" methodDef.Implementation.WriteLine( $Char(9,9) _ setPathParamLine)
+    Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("Set response = ##class(%1).%2(requestMessage)", ..implClassName, implMethodName))
+    Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("Do ##class(%1).%WriteResponse(response)",..implClassName))
+    
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "} Catch(ex) {")
+    Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("Do ##class(%REST.Impl).%ReportRESTError(..#HTTP500INTERNALSERVERERROR,ex.AsStatus(),$parameter(""%1"",""ExposeServerExceptions""))", ..implClassName))
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "}")
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "Quit sc")
+
+    Set sc = classDef.%Save()
+
+    Quit sc
+}
+
+Method GenerateRequestValidate(path As %String, pathItem As %DynamicObject, method As %String, operation As %DynamicObject) As %Status
+{
+    Set sc = $$$OK
+    #dim propDef As %Dictionary.PropertyDefinition
+
+    Do ..CheckAndGenerateOperationId(method, .operation, path)
+
+    Set className = ..packageRequest _ "." _ operation.operationId
+
+    Set classDef = ##class(%Dictionary.ClassDefinition).%OpenId(className,,.sc)
+
+    If $$$ISERR(sc) {
+        $$$zlog($Char(9) _"+ Can't add RequestValidate method to  " _ className _ "(class definition does not exist)")
+        Quit sc
+    }
+
+    $$$zlog($Char(9) _"+ Add RequestValidate method to  " _ className)
+
+    Set methodDef = ##class(%Dictionary.MethodDefinition).%New()
+    Set methodDef.Name = "RequestValidate"
+    Set methodDef.Description = "Load object properties from %CSP.Request object."
+    Set methodDef.FormalSpec = ""
+    Set methodDef.ClassMethod = $$$NO
+    Set methodDef.ReturnType = "%Status"
+    Do classDef.Methods.Insert(methodDef)
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "Set sc = $$$OK")
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "$$$QuitOnError(..%ValidateObject())")
+
+    #dim property As %Dictionary.PropertyDefinition
+    Set key = ""
+    For  {
+        Set property = classDef.Properties.GetNext(.key)
+        Quit:key=""
+
+        If property.Required  {
+
+            Do methodDef.Implementation.WriteLine( $Char(9) _ $$$FormatText("Quit:'$IsObject(..%1) $$$ERROR(5659, ""%1"")", $$$CodeNormalizeProperty(property.Name)))
+            Do:property.Type["%Stream." methodDef.Implementation.WriteLine( $Char(9) _ $$$FormatText("Quit:..%1.Size=0 $$$ERROR(5659, ""%1"")", $$$CodeNormalizeProperty(property.Name)))
+        }
+
+        Do:property.Type[..packageModel methodDef.Implementation.WriteLine( $Char(9) _$$$FormatText("If $IsObject(..%1) $$$QuitOnError(..%1.%ValidateObject())", $$$CodeNormalizeProperty(property.Name)))
+        
+    }
+    
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "Quit sc")
+
+    Set sc = classDef.%Save()
+    Quit sc
+}
+
+Method AlimCheckAccept(path As %String, pathItem As %DynamicObject, method As %String, operation As %DynamicObject, response As %String, responseItem As %DynamicObject) As %Status
+{
+    Set sc = $$$OK
+
+    If $IsObject(responseItem.content) {
+        Set contentTypeIterator = responseItem.content.%GetIterator()
+        While contentTypeIterator.%GetNext(.contentType, .contentTypeItem) {
+            Continue:..tmp[contentType
+            Set ..tmp = $Select(..tmp="": $$$LOWER(contentType), 1: ..tmp _ "," _ $$$LOWER(contentType))
+        }
+    }
+
+    Quit sc
+}
+
+ClassMethod AlimPathParamList(path As %String, Output paramList As %Binary) As %Status
+{
+    Set matcher = ##class(%Regex.Matcher).%New("\{([^{}]*)\}") 
+    Set matcher.Text = path
+    While matcher.Locate() {
+        Set paramList($Increment(paramList)) = $$$zNormalizeClassName(matcher.Group(1))
+    }
+    Quit $$$OK
+}
+
+}

@@ -1,15 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Export generator="Cache" version="25">
-  <Document name="dc-sample.ZPM">
+  <Document name="openapi-server-gen.ZPM">
     <Module>
-      <Name>dc-sample</Name>
-      <Version>1.0.10</Version>
-      <Description>Basic InterSystems IRIS Development Template</Description>
+      <Name>openapi-server-gen</Name>
+      <Version>0.0.1</Version>
+      <Description>OpenAPI server-side REST class generator from a specification</Description>
       <Packaging>module</Packaging>
       <SourcesRoot>src</SourcesRoot>
-      <Resource Name="dc.sample.PKG"/>
-      <UnitTest Name="/tests" Package="dc.sample.unittests" Phase="test"/>
-
+      <Resource Name="dc.openapi.server.PKG"/>
+      <Dependencies>
+        <ModuleReference>
+          <Name>openapi-common-lib</Name>
+          <Version>0.0.7</Version>
+        </ModuleReference>
+        <ModuleReference>
+          <Name>objectscript-openapi-definition</Name>
+          <Version>1.3.0</Version>
+        </ModuleReference>
+        <ModuleReference>
+          <Name>sslclient</Name>
+          <Version>1.0.1</Version>
+        </ModuleReference>
+      </Dependencies>
+      <UnitTest Name="/tests" Package="dc.openapi.server.unittests" Phase="test"/>
     </Module>
   </Document>
 </Export>
