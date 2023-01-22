@@ -329,10 +329,13 @@ Method AddDispMethod(path As %String, pathItem As %DynamicObject, method As %Str
     Set implMethodName = operation.operationId ;
 
     Do methodDef.Implementation.WriteLine( $Char(9) _ "Try{")
-    Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("Set acceptedMedia = $ListFromString(""%1"")", $ListToString(listContentType)))
-    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "If '$ListFind(acceptedMedia,$$$LOWER(%request.ContenType)) {")
-    Do methodDef.Implementation.WriteLine( $Char(9,9,9) _ " Do ##class(%REST.Impl).%ReportRESTError(..#HTTP415UNSUPPORTEDMEDIATYPE,$$$ERROR($$$RESTContentType,%request.ContentType)) Quit")
-    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "}")
+    
+    If $ListLength(listContentType) > 0 {
+        Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("Set acceptedMedia = $ListFromString(""%1"")", $ListToString(listContentType)))
+        Do methodDef.Implementation.WriteLine( $Char(9,9) _ "If '$ListFind(acceptedMedia,$$$LOWER(%request.ContenType)) {")
+        Do methodDef.Implementation.WriteLine( $Char(9,9,9) _ " Do ##class(%REST.Impl).%ReportRESTError(..#HTTP415UNSUPPORTEDMEDIATYPE,$$$ERROR($$$RESTContentType,%request.ContentType)) Quit")
+        Do methodDef.Implementation.WriteLine( $Char(9,9) _ "}")
+    }
 
     Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("Do ##class(%REST.Impl).%SetContentType(%1)", "$Get(%request.CgiEnvs(""HTTP_ACCEPT""))" ))
     Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("If '##class(%REST.Impl).%CheckAccepts(""%1"") Do ##class(%REST.Impl).%ReportRESTError(..#HTTP406NOTACCEPTABLE,$$$ERROR($$$RESTBadAccepts)) Quit", accept ))
