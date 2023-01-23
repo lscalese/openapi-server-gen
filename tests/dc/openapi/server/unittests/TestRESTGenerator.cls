@@ -10,7 +10,16 @@ Method OnBeforeAllTests() As %Status
 Method OnAfterAllTests() As %Status
 {
 	Do $SYSTEM.OBJ.DeletePackage("unitestpetstore")
+	
+	Set ns = $NameSpace
+	New $NameSpace
+	Set $NameSpace = "%SYS"
+
 	Do ##class(Security.Applications).Delete("/petstore/unittests")
+	
+	Set $NameSpace = ns
+
+	
 	Quit $$$OK
 }
 
@@ -26,6 +35,7 @@ Method Test03WebApp()
 {
 	Set ns = $NameSpace
 	New $NameSpace
+	Set $NameSpace = "%SYS"
 
 	Set exists = ##class(Security.Applications).Exists("/petstore/unittests")
 	Set $NameSpace = ns
