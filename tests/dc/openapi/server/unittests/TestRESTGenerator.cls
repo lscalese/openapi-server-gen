@@ -1,10 +1,45 @@
-Class tests.dc.openapi.server.unittests.TestRESTGenerator Extends %UnitTest.TestCase
+Class dc.openapi.server.unittests.TestRESTGenerator Extends %UnitTest.TestCase
 {
 
-Method Test42()
+Method OnBeforeAllTests() As %Status
 {
-	Set tExpected=42
-    set tResults= ##class(dc.sample.ObjectScript).Test()
-	Do $$$AssertEquals(tResults,tExpected,tExpected_" = "_tResults)
+	Do $SYSTEM.OBJ.DeletePackage("unitestpetstore")
+	Quit $$$OK
 }
+
+Method OnAfterAllTests() As %Status
+{
+	Do $SYSTEM.OBJ.DeletePackage("unitestpetstore")
+	Do ##class(Security.Applications).Delete("/petstore/unittests")
+	Quit $$$OK
+}
+
+Method Test01GeneratePetStore()
+{
+	Set features("compile") = 0
+ 	Set sc = ##class(dc.openapi.server.ServerAppGenerator).Generate("unitestpetstore", "https://petstore3.swagger.io/api/v3/openapi.json", "/petstore/unittests", .features)
+	Do $$$AssertStatusOK(sc, "Generate class for Petstore")
+	Quit
+}
+
+Method Test03WebApp()
+{
+	Set ns = $NameSpace
+	New $NameSpace
+
+	Set exists = ##class(Security.Applications).Exists("/petstore/unittests")
+	Set $NameSpace = ns
+	Do $$$AssertTrue(exists, "Web Application exists.")
+
+	Quit
+}
+
+Method Test02CompilePetStore()
+{
+	Set features("compile") = 0
+ 	Set sc = $SYSTEM.OBJ.CompilePackage("unitestpetstore")
+	Do $$$AssertStatusOK(sc, "Generate class for Petstore")
+	Quit
+}
+
 }

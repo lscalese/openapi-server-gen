@@ -5,7 +5,7 @@ Class dc.openapi.server.ServerAppGenerator
 
 Parameter XDataName = "OpenAPI";
 
-ClassMethod Generate(application As %String, specification) As %Status
+ClassMethod Generate(application As %String, specification, webApplicationname As %String = "", ByRef features As %Binary) As %Status
 {
     $$$zlog("Generate server-side application " _ application)
 
@@ -15,14 +15,16 @@ ClassMethod Generate(application As %String, specification) As %Status
     
     If $$$ISERR(sc) Do $SYSTEM.Status.DisplayError(sc) Quit sc
 
-    Set sc = ..%CreateClientApplication(application, spec, .newApplication)
+    Set sc = ..%CreateServerApplication(application, spec, .features, .newApplication)
 
-    If $$$ISERR(sc) Do $SYSTEM.Status.DisplayError(sc)
+    If $$$ISERR(sc),$Get(%zverbose,1) Do $SYSTEM.Status.DisplayError(sc)
 
+    If webApplicationname '= "" Set sc = $$$ADDSC(sc, ..CreateWebApplication(webApplicationname, application_".disp"))
+    
     Return sc
 }
 
-ClassMethod %CreateClientApplication(applicationName As %String, swagger As %DynamicObject, ByRef features As %Binary, Output newApplication As %Boolean) As %Status
+ClassMethod %CreateServerApplication(applicationName As %String, swagger As %DynamicObject, ByRef features As %Binary, Output newApplication As %Boolean) As %Status
 {
     Set sc = $$$OK
    
@@ -64,6 +66,9 @@ ClassMethod %CreateClientApplication(applicationName As %String, swagger As %Dyn
         $$$ThrowOnError(cDef.%Save())
         $$$ThrowOnError($system.OBJ.Compile(specClass,"ck"))
 
+        Set generator = ##class(dc.openapi.server.RESTGenerator).%New(swagger, applicationName)
+
+        Set sc = generator.Generate()
 
     } Catch (ex) {
         Set sc = ex.AsStatus()
@@ -74,6 +79,35 @@ ClassMethod %CreateClientApplication(applicationName As %String, swagger As %Dyn
         Set sc = $SYSTEM.OBJ.CompilePackage(applicationName)
     }
     
+    Return sc
+}
+
+ClassMethod CreateWebApplication(webAppName As %String, dispatchClassName As %String) As %Status
+{
+    Set ns = $NameSpace, sc = $$$OK
+    New $NameSpace
+    Set $NameSpace = "%SYS"
+
+    If ##class(Security.Applications).Exists(webAppName) {
+        Set $NameSpace = ns
+        $$$zlog("= Web application " _ webAppName _ " already exists, skip ...") 
+        Quit sc
+    }
+
+    set webProperties("NameSpace") = ns
+    set webProperties("Enabled") = 1
+    set webProperties("CSPZENEnabled") = 1
+    set webProperties("AutheEnabled") = 64
+    set webProperties("iKnowEnabled") = 1
+    set webProperties("DeepSeeEnabled") = 1
+    set webProperties("DeepSeeEnabled") = 1
+    Set webProperties("DispatchClass") = dispatchClassName
+    Set webProperties("MatchRoles")=":%DB_" _ ns
+    set sc = ##class(Security.Applications).Create(webAppName, .webProperties)
+
+    Set $NameSpace = ns
+    $$$zlog("= Web application " _ webAppName _ "status : " _ $SYSTEM.Status.GetOneErrorText(sc) )
+
     Return sc
 }
 

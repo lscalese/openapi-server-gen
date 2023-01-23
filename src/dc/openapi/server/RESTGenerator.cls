@@ -9,6 +9,8 @@ Property restClassName As %String;
 
 Property implClassName As %String;
 
+Property specClassName As %String;
+
 Property routes As %Stream.GlobalCharacter [ Private ];
 
 Property tmp As %String [ Private ];
@@ -23,6 +25,7 @@ Method %OnNew(specification As %DynamicObject, application) As %Status
     Set ..packageRequest = ..application _ "." _ ..#PKGREQUEST
     Set ..restClassName = ..application _ ".disp"
     Set ..implClassName = ..application _ ".impl"
+    Set ..specClassName = ..application _ ".Spec"
 
     Quit sc
 }
@@ -41,7 +44,18 @@ Method Generate() As %Status
 
     Set sc = $$$ADDSC(sc, ..GenerateREST())
 
+    Set sc = $$$ADDSC(sc, ..GenerateImpl())
+
     Quit sc
+}
+
+Method CleanPreviousCodeGeneration() As %Status
+{
+    Do $SYSTEM.OBJ.DeletePackage(..packageModel)
+    Do $SYSTEM.OBJ.DeletePackage(..packageRequest)
+    Do $SYSTEM.OBJ.Delete(..restClassName)
+    Do $SYSTEM.OBJ.Delete(..restClassName)
+    Quit $$$OK
 }
 
 Method GenerateModels() As %Status
@@ -273,6 +287,108 @@ Method GenerateREST() As %Status
 
     Set sc = $$$ADDSC(sc, ..IterateOnOperation("AddDispMethod"))
     
+    Set sc = $$$ADDSC(sc, ..AddDispSwaggerSpec())
+
+    Quit sc
+}
+
+Method GenerateImpl() As %Status
+{
+    Set sc = $$$OK
+
+    Set className = ..implClassName
+    $$$zlog($Char(9) _"Class name is " _ className)
+
+    $$$zlog("* Generate class " _ className)
+
+    #dim classDef As %Dictionary.ClassDefinition
+
+    Set classDef = ##class(%Dictionary.ClassDefinition).%OpenId(className)  ; to avoid erase implementation class
+
+    If '$IsObject(classDef) {
+        $$$QuitOnError(##class(dc.openapi.common.Utils).CreateClassDefInstance(className, .classDef))
+        Set classDef.Super = "%REST.Impl"
+
+        #dim parameter As %Dictionary.ParameterDefinition
+        Set parameter = ##class(%Dictionary.ParameterDefinition).%New()
+        Set parameter.Name = "ExposeServerExceptions"
+        Set parameter.Default = "1"
+        Do classDef.Parameters.Insert(parameter)
+
+    }
+
+    
+
+    Set sc = classDef.%Save()
+
+    Set sc = $$$ADDSC(sc, ..AddImplSwaggerSpec())
+
+    Set sc = $$$ADDSC(sc, ..IterateOnOperation("AddImplMethod"))
+    
+    Quit sc
+}
+
+Method AddImplMethod(path As %String, pathItem As %DynamicObject, method As %String, operation As %DynamicObject) As %Status
+{
+    Set sc = $$$OK
+    Set className = ..implClassName, messageRequestClass = ..packageRequest _ "." _ operation.operationId
+
+    If ##class(%Dictionary.MethodDefinition).%ExistsId(className_"||"_operation.operationId) Quit $$$OK    ; override protection
+
+    Set classDef = ##class(%Dictionary.ClassDefinition).%OpenId(className,,.sc)
+
+    If $$$ISERR(sc) {
+        $$$zlog($Char(9) _"+ Can't add "_ operation.operationId _" method to  " _ className _ "(class definition does not exist)")
+        Quit sc
+    }
+
+    $$$zlog($Char(9) _"+ Add "_ operation.operationId _ " method to " _ className)
+
+    Set methodDef = ##class(%Dictionary.MethodDefinition).%New()
+    Set methodDef.Name = operation.operationId
+    Set methodDef.Description = "Service implemntation for " _ method _ " " _ path
+    Set methodDef.ClassMethod = $$$YES
+    Set methodDef.FormalSpec = "messageRequest:"_messageRequestClass
+    Set methodDef.ReturnType = "%Status"
+    Do classDef.Methods.Insert(methodDef)
+    
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "; Implement your service here.")
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "; Return {}")
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "$$$ThrowStatus($$$ERROR($$$NotImplemented))")
+    
+    Set sc = classDef.%Save()
+    
+    Quit sc
+}
+
+Method AddImplSwaggerSpec() As %Status
+{
+
+    Set className = ..implClassName, sc = $$$OK
+
+    If ##class(%Dictionary.MethodDefinition).%ExistsId(className_"||SwaggerSpec") Quit $$$OK    ; override protection
+    
+    Set classDef = ##class(%Dictionary.ClassDefinition).%OpenId(className,,.sc)
+
+    If $$$ISERR(sc) {
+        $$$zlog($Char(9) _"+ Can't add SwaggerSpec method to  " _ className _ "(class definition does not exist)")
+        Quit sc
+    }
+
+    $$$zlog($Char(9) _"+ Add SwaggerSpec method to " _ className)
+    
+    Set methodDef = ##class(%Dictionary.MethodDefinition).%New()
+    Set methodDef.Name = "SwaggerSpec"
+    Set methodDef.Description = "Process request " _ "SwaggerSpec" _ " " _ "/_spec"
+    Set methodDef.ClassMethod = $$$YES
+    Set methodDef.ReturnType = "%Status"
+    Do classDef.Methods.Insert(methodDef)
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "Set spec = {}.%FromJSON(##class(%Dictionary.CompiledXData).%OpenId(""" _ ..specClassName _ "||OpenAPI"").Data)")
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "Set url = $Select(%request.Secure:""https"",1:""http"") _ ""://""_$Get(%request.CgiEnvs(""SERVER_NAME"")) _ "":"" _ $Get(%request.CgiEnvs(""SERVER_PORT"")) _ %request.Application")
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "Set spec.servers = [{""url"" : (url)}]")
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "Quit spec" )
+    
+    Set sc = classDef.%Save()
 
     Quit sc
 }
@@ -298,7 +414,7 @@ Method AddDispMethod(path As %String, pathItem As %DynamicObject, method As %Str
     Set methodDef = ##class(%Dictionary.MethodDefinition).%New()
     Set methodDef.Name = operation.operationId
     Set methodDef.Description = "Process request " _ method _ " " _ path
-    Set methodDef.ClassMethod = $$$NO
+    Set methodDef.ClassMethod = $$$YES
     Set methodDef.ReturnType = "%Status"
     Do classDef.Methods.Insert(methodDef)
     Do ..AlimPathParamList(path, .pathParam)
@@ -332,7 +448,7 @@ Method AddDispMethod(path As %String, pathItem As %DynamicObject, method As %Str
     
     If $ListLength(listContentType) > 0 {
         Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("Set acceptedMedia = $ListFromString(""%1"")", $ListToString(listContentType)))
-        Do methodDef.Implementation.WriteLine( $Char(9,9) _ "If '$ListFind(acceptedMedia,$$$LOWER(%request.ContenType)) {")
+        Do methodDef.Implementation.WriteLine( $Char(9,9) _ "If '$ListFind(acceptedMedia,$$$LOWER(%request.ContentType)) {")
         Do methodDef.Implementation.WriteLine( $Char(9,9,9) _ " Do ##class(%REST.Impl).%ReportRESTError(..#HTTP415UNSUPPORTEDMEDIATYPE,$$$ERROR($$$RESTContentType,%request.ContentType)) Quit")
         Do methodDef.Implementation.WriteLine( $Char(9,9) _ "}")
     }
@@ -346,6 +462,8 @@ Method AddDispMethod(path As %String, pathItem As %DynamicObject, method As %Str
 
     Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("Set requestMessage = ##class(%1).%New()", messageRequestClass))
     Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do requestMessage.LoadFromRequest(%request)")
+    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Set scValidateRequest = requestMessage.RequestValidate()")
+    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "If $$$ISERR(scValidateRequest) Do ##class(%REST.Impl).%ReportRESTError(..#HTTP400BADREQUEST,$$$ERROR(5001,""Invalid requestMessage object."")) Quit")
     Do:setPathParamLine'="" methodDef.Implementation.WriteLine( $Char(9,9) _ setPathParamLine)
     Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("Set response = ##class(%1).%2(requestMessage)", ..implClassName, implMethodName))
     Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("Do ##class(%1).%WriteResponse(response)",..implClassName))
@@ -407,6 +525,41 @@ Method GenerateRequestValidate(path As %String, pathItem As %DynamicObject, meth
     Do methodDef.Implementation.WriteLine( $Char(9) _ "Quit sc")
 
     Set sc = classDef.%Save()
+    Quit sc
+}
+
+Method AddDispSwaggerSpec() As %Status
+{
+    Set className = ..restClassName, sc = $$$OK
+
+    Set classDef = ##class(%Dictionary.ClassDefinition).%OpenId(className,,.sc)
+
+    If $$$ISERR(sc) {
+        $$$zlog($Char(9) _"+ Can't add SwaggerSpec method to  " _ className _ "(class definition does not exist)")
+        Quit sc
+    }
+
+    $$$zlog($Char(9) _"+ Add SwaggerSpec method to " _ className)
+
+    Set methodDef = ##class(%Dictionary.MethodDefinition).%New()
+    Set methodDef.Name = "SwaggerSpec"
+    Set methodDef.Description = "Process request " _ "SwaggerSpec" _ " " _ "/_spec"
+    Set methodDef.ClassMethod = $$$YES
+    Set methodDef.ReturnType = "%Status"
+    Do classDef.Methods.Insert(methodDef)
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "Try {")
+    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do ##class(%REST.Impl).%SetContentType(""application/json"")" )
+    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "If '##class(%REST.Impl).%CheckAccepts(""application/json"") Do ##class(%REST.Impl).%ReportRESTError(..#HTTP406NOTACCEPTABLE,$$$ERROR($$$RESTBadAccepts)) Quit" )
+    Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("Set response=##class(%1).SwaggerSpec()", ..implClassName)  )
+    Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("Do ##class(%1).%WriteResponse(response)", ..implClassName)  )
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "} Catch(ex) {" )
+    Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText(" Do ##class(%REST.Impl).%ReportRESTError(..#HTTP500INTERNALSERVERERROR,ex.AsStatus(),$parameter(""%1"",""ExposeServerExceptions""))", className) )
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "}" )
+    
+    Do methodDef.Implementation.WriteLine( $Char(9) _ "Quit $$$OK")
+
+    Set sc = classDef.%Save()
+
     Quit sc
 }
 
