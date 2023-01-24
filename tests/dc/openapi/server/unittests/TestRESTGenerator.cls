@@ -18,7 +18,6 @@ Method OnAfterAllTests() As %Status
 	Do ##class(Security.Applications).Delete("/petstore/unittests")
 	
 	Set $NameSpace = ns
-
 	
 	Quit $$$OK
 }

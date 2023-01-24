@@ -156,12 +156,21 @@ Method GenerateLoadFromRequestMethod(path As %String, pathItem As %DynamicObject
 
     While bodyContentIterator.%GetNext(.contentType, .contentTypeItem) {
         
-        Continue:'$IsObject(contentTypeItem.schema)
+        ;Continue:'$IsObject(contentTypeItem.schema)
 
         Set condition = $$$FormatText("If ..%ContentType = ""%1""", $$$LOWER(contentType))
         
         If 'contentTypeItem.%IsDefined("schema") {
-            Set:'$Data(tmp(0),propertyName) propertyName = $$$NormalizePropertyParamName("body") _ $INCREMENT(body)
+            Set thePropType = $Select($$$LOWER(contentType)="application/json":"%DynamicObject",1:"%Stream.Object")
+            Set hash = $ZCRC(thePropType, 7)
+            
+            Set:'$Data(tmp(hash),propertyName) propertyName = $$$NormalizePropertyParamName("body") _ $INCREMENT(body)
+            If $$$LOWER(contentType) [ "application/json" {
+                Set propDef = $$$FindPropertyName(classDef, $$$NormalizePropertyParamName(propertyName))
+                Do methodDef.Implementation.WriteLine( $Char(9) _ condition _" {")
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Set:$Get(request.Content)'="""" .." _ $$$CodeNormalizeProperty(propDef.Name)_" = {}.%FromJSON(request.Content)")
+                Do methodDef.Implementation.WriteLine( $Char(9) _"}")
+            }
             Continue
         }
         
@@ -190,7 +199,9 @@ Method GenerateLoadFromRequestMethod(path As %String, pathItem As %DynamicObject
                 Do methodDef.Implementation.WriteLine( $Char(9) _ "}")
             } Else {
                 Do methodDef.Implementation.WriteLine( $Char(9) _ condition _ "{")
+                
                 Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do .." _ $$$CodeNormalizeProperty(propDef.Name)_"NewObject().%JSONImport(request.Content)")
+                
                 Do methodDef.Implementation.WriteLine( $Char(9) _ "}" )
             }
 
@@ -199,11 +210,9 @@ Method GenerateLoadFromRequestMethod(path As %String, pathItem As %DynamicObject
             Do methodDef.Implementation.WriteLine( $Char(9) _ condition _ "{")
 
             If propDef.Type = "%Stream.GlobalBinary" {
-                ;Do methodDef.Implementation.WriteLine( $Char(9,9) _ "")
                 Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Set mime = request.GetMimeData(""" _ propertyName _ """)")
                 Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do:$IsObject(mime) .." _ $$$CodeNormalizeProperty(propertyName) _ ".CopyFrom(mime)")
             } Else {
-                ; todo ...
                 Do methodDef.Implementation.WriteLine( $Char(9,9) _ "; To implement.  There is no code generation yet for this case.")
                 Do methodDef.Implementation.WriteLine( $Char(9,9) _ "$$$ThrowStatus($$$ERROR($$$NotImplemented))")
             }

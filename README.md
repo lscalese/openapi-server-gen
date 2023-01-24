@@ -48,3 +48,4 @@ If you install `swagger-ui`  you can open this page http://localhost:52796/swagg
 
 
 More information about this package will be available soon on [OpenExchange](https://openexchange.intersystems.com).  
+
