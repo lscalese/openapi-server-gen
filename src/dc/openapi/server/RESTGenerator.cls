@@ -160,7 +160,10 @@ Method GenerateLoadFromRequestMethod(path As %String, pathItem As %DynamicObject
 
         Set condition = $$$FormatText("If ..%ContentType = ""%1""", $$$LOWER(contentType))
         
-        If 'contentTypeItem.%IsDefined("schema") {
+        Set isEmptySchema = 'contentTypeItem.%IsDefined("schema")
+        Set:'isEmptySchema isEmptySchema = (contentTypeItem.schema."$ref" = "") && (contentTypeItem.schema.type = "")
+
+        If isEmptySchema {
             Set thePropType = $Select($$$LOWER(contentType)="application/json":"%DynamicObject",1:"%Stream.Object")
             Set hash = $ZCRC(thePropType, 7)
             
