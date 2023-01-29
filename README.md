@@ -44,7 +44,7 @@ Set sc = ##class(dc.openapi.server.ServerAppGenerator).Generate(applicationName,
 
 Explorer generated class in `petstoresrv` package.  
 
-If you install `swagger-ui`  you can open this page http://localhost:52796/swagger-ui/index.html and then explore http://localhost:52796/petstore/api/_spec
+If you install `swagger-ui`  you can open this page http://localhost:52797/swagger-ui/index.html and then explore http://localhost:52796/petstore/api/_spec
 
 
 More information about this package will be available soon on [OpenExchange](https://openexchange.intersystems.com).  

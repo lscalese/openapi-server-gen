@@ -519,18 +519,33 @@ Method GenerateRequestValidate(path As %String, pathItem As %DynamicObject, meth
     Do methodDef.Implementation.WriteLine( $Char(9) _ "$$$QuitOnError(..%ValidateObject())")
 
     #dim property As %Dictionary.PropertyDefinition
+
+    Set bodyRequired = $$$NO
+    If $IsObject(operation.requestBody) Set bodyRequired = operation.requestBody.required||(operation.requestBody.required="true")
+
     Set key = ""
     For  {
         Set property = classDef.Properties.GetNext(.key)
         Quit:key=""
 
-        If property.Required  {
+        
+        If property.Name?1"body"0.1N, bodyRequired {
 
-            Do methodDef.Implementation.WriteLine( $Char(9) _ $$$FormatText("Quit:'$IsObject(..%1) $$$ERROR(5659, ""%1"")", $$$CodeNormalizeProperty(property.Name)))
-            Do:property.Type["%Stream." methodDef.Implementation.WriteLine( $Char(9) _ $$$FormatText("Quit:..%1.Size=0 $$$ERROR(5659, ""%1"")", $$$CodeNormalizeProperty(property.Name)))
+            Set contentTypeList = ..GetContentTypeListForProperty(property.Name, operation)
+
+            Do methodDef.Implementation.WriteLine( $Char(9) _ $$$FormatText("If ''$ListFind($ListFromString(""%1""), ..%ContentType) {", contentTypeList) )
+            
+            If property.Type["%Stream." {
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("Quit:..%1.Size=0 $$$ERROR(5659, ""%1"")", $$$CodeNormalizeProperty(property.Name)))
+            } Else {
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ $$$FormatText("Quit:..%1="""" $$$ERROR(5659, ""%1"")", $$$CodeNormalizeProperty(property.Name)))
+            }
+
+            Do methodDef.Implementation.WriteLine( $Char(9) _ "}" )
         }
 
         Do:property.Type[..packageModel methodDef.Implementation.WriteLine( $Char(9) _$$$FormatText("If $IsObject(..%1) $$$QuitOnError(..%1.%ValidateObject())", $$$CodeNormalizeProperty(property.Name)))
+        
         
     }
     
