@@ -3,7 +3,7 @@
   <Document name="openapi-server-gen.ZPM">
     <Module>
       <Name>openapi-server-gen</Name>
-      <Version>0.0.3</Version>
+      <Version>0.0.4</Version>
       <Description>OpenAPI server-side REST class generator from a specification</Description>
       <Packaging>module</Packaging>
       <SourcesRoot>src</SourcesRoot>
@@ -11,7 +11,7 @@
       <Dependencies>
         <ModuleReference>
           <Name>openapi-common-lib</Name>
-          <Version>0.0.9</Version>
+          <Version>0.0.10</Version>
         </ModuleReference>
         <ModuleReference>
           <Name>objectscript-openapi-definition</Name>
