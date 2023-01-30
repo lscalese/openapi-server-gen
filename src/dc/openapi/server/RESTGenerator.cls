@@ -145,42 +145,15 @@ Method GenerateLoadFromRequestMethod(path As %String, pathItem As %DynamicObject
 
     }
 
-    If '$ISOBJECT(operation.requestBody) {
+    If '$ISOBJECT(operation.requestBody)||'$ISOBJECT(operation.requestBody.content) {
         Do methodDef.Implementation.WriteLine( $Char(9) _ "Quit sc")
         Quit $$$ADDSC(sc, classDef.%Save())
     }
 
-    Set bodyContentIterator = operation.requestBody.content.%GetIterator()
-    
-    
+    Set bodyHelper = ..RequestBodyHelper(operation.requestBody.content), bodyHelperIterator = bodyHelper.%GetIterator()
 
-    While bodyContentIterator.%GetNext(.contentType, .contentTypeItem) {
+    While bodyHelperIterator.%GetNext(.propertyName, .propertyDetail) {
         
-        ;Continue:'$IsObject(contentTypeItem.schema)
-
-        Set condition = $$$FormatText("If ..%ContentType = ""%1""", $$$LOWER(contentType))
-        
-        Set isEmptySchema = 'contentTypeItem.%IsDefined("schema")
-        Set:'isEmptySchema isEmptySchema = (contentTypeItem.schema."$ref" = "") && (contentTypeItem.schema.type = "")
-
-        If isEmptySchema {
-            Set thePropType = $Select($$$LOWER(contentType)="application/json":"%DynamicObject",1:"%Stream.Object")
-            Set hash = $ZCRC(thePropType, 7)
-            
-            Set:'$Data(tmp(hash),propertyName) propertyName = $$$NormalizePropertyParamName("body") _ $INCREMENT(body)
-            If $$$LOWER(contentType) [ "application/json" {
-                Set propDef = $$$FindPropertyName(classDef, $$$NormalizePropertyParamName(propertyName))
-                Do methodDef.Implementation.WriteLine( $Char(9) _ condition _" {")
-                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Set:$Get(request.Content)'="""" .." _ $$$CodeNormalizeProperty(propDef.Name)_" = {}.%FromJSON(request.Content)")
-                Do methodDef.Implementation.WriteLine( $Char(9) _"}")
-            }
-            Continue
-        }
-        
-        Set hash = $ZCRC(contentTypeItem.schema.%ToJSON(), 7)
-        
-        Set:'$Data(tmp(hash),propertyName) propertyName = $$$NormalizePropertyParamName("body") _ $INCREMENT(body), tmp(hash) = propertyName
-
         Set propDef = $$$FindPropertyName(classDef, $$$NormalizePropertyParamName(propertyName))
         If '$IsObject(propDef) {
             Set errMsg = $$$FormatText("Property definition %1 not found in class %2", propertyName, classDef.Name)
@@ -189,59 +162,64 @@ Method GenerateLoadFromRequestMethod(path As %String, pathItem As %DynamicObject
             Continue
         }
 
-        If $$$LOWER(contentType) [ "application/json" {
-            If propDef.Collection '= "" {
-                Do methodDef.Implementation.WriteLine( $Char(9) _ condition _ "{")
-                Do methodDef.Implementation.WriteLine( "" )
-                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Set key = """", array = [].%FromJSON(request.Content), iterator = array.%GetIterator()")
-                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "While iterator.%GetNext(.index, .item) {")
-                Do methodDef.Implementation.WriteLine( $Char(9,9,9) _ $$$FormatText("Set tmpObject = ##class(%1).%New()", propDef.Type ))
-                Do methodDef.Implementation.WriteLine( $Char(9,9,9) _ "Do tmpObject.%JSONImport(item)")
-                Do methodDef.Implementation.WriteLine( $Char(9,9,9) _ "Do .." _ $$$CodeNormalizeProperty(propDef.Name)_".Insert(tmpObject)")
-                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "}")
-                Do methodDef.Implementation.WriteLine( $Char(9) _ "}")
-            } Else {
-                Do methodDef.Implementation.WriteLine( $Char(9) _ condition _ "{")
-                
-                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do .." _ $$$CodeNormalizeProperty(propDef.Name)_"NewObject().%JSONImport(request.Content)")
-                
-                Do methodDef.Implementation.WriteLine( $Char(9) _ "}" )
-            }
+        Set ctIterator = propertyDetail.contentType.%GetIterator()
+        While ctIterator.%GetNext(.key, .contentType) {
 
-        } ElseIf ($$$LOWER(contentType) [ "multipart/form-data") {
+            Set condition = $$$FormatText("If ..%ContentType = ""%1""", $$$LOWER(contentType))
+            If $$$LOWER(contentType) = "application/json" {
+                If propDef.Collection '= "" {
+                    Do methodDef.Implementation.WriteLine( $Char(9) _ condition _ "{")
+                    Do methodDef.Implementation.WriteLine( "" )
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Set key = """", array = [].%FromJSON(request.Content), iterator = array.%GetIterator()")
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "While iterator.%GetNext(.index, .item) {")
+                    Do methodDef.Implementation.WriteLine( $Char(9,9,9) _ $$$FormatText("Set tmpObject = ##class(%1).%New()", propDef.Type ))
+                    Do methodDef.Implementation.WriteLine( $Char(9,9,9) _ "Do tmpObject.%JSONImport(item)")
+                    Do methodDef.Implementation.WriteLine( $Char(9,9,9) _ "Do .." _ $$$CodeNormalizeProperty(propDef.Name)_".Insert(tmpObject)")
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "}")
+                    Do methodDef.Implementation.WriteLine( $Char(9) _ "}")
+                } Else {
+                    Do methodDef.Implementation.WriteLine( $Char(9) _ condition _ "{")
+                    
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do .." _ $$$CodeNormalizeProperty(propDef.Name)_"NewObject().%JSONImport(request.Content)")
+                    
+                    Do methodDef.Implementation.WriteLine( $Char(9) _ "}" )
+                }
+
+            }ElseIf ($$$LOWER(contentType) [ "multipart/form-data") {
             
-            Do methodDef.Implementation.WriteLine( $Char(9) _ condition _ "{")
+                Do methodDef.Implementation.WriteLine( $Char(9) _ condition _ "{")
 
-            If propDef.Type = "%Stream.GlobalBinary" {
-                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Set mime = request.GetMimeData(""" _ propertyName _ """)")
-                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do:$IsObject(mime) .." _ $$$CodeNormalizeProperty(propertyName) _ ".CopyFrom(mime)")
+                If propDef.Type = "%Stream.GlobalBinary" {
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Set mime = request.GetMimeData(""" _ propertyName _ """)")
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do:$IsObject(mime) .." _ $$$CodeNormalizeProperty(propertyName) _ ".CopyFrom(mime)")
+                } Else {
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "; To implement.  There is no code generation yet for this case.")
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "$$$ThrowStatus($$$ERROR($$$NotImplemented))")
+                }
+
+                Do methodDef.Implementation.WriteLine( $Char(9) _ "}")
+            
+            } ElseIf $$$LOWER(contentType) [ "application/octet-stream" {
+                Do methodDef.Implementation.WriteLine( $Char(9) _ condition _ "{")
+
+                If propDef.Type = "%Stream.GlobalBinary" {
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do .." _ $$$CodeNormalizeProperty(propDef.Name) _ ".CopyFrom(request.Content)" )
+                } Else {
+                    
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "; To implement.  There is no code generation for this case.")
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "$$$ThrowStatus($$$ERROR($$$NotImplemented))")
+                }
+
+                Do methodDef.Implementation.WriteLine( $Char(9) _ "}")
+
             } Else {
+                Do methodDef.Implementation.WriteLine( $Char(9) _ condition _" {")
                 Do methodDef.Implementation.WriteLine( $Char(9,9) _ "; To implement.  There is no code generation yet for this case.")
                 Do methodDef.Implementation.WriteLine( $Char(9,9) _ "$$$ThrowStatus($$$ERROR($$$NotImplemented))")
+                Do methodDef.Implementation.WriteLine( $Char(9) _ "}")
             }
-
-            Do methodDef.Implementation.WriteLine( $Char(9) _ "}")
-        
-        } ElseIf $$$LOWER(contentType) [ "application/octet-stream" {
-            Do methodDef.Implementation.WriteLine( $Char(9) _ condition _ "{")
-
-            If propDef.Type = "%Stream.GlobalBinary" {
-                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do .." _ $$$CodeNormalizeProperty(propDef.Name) _ ".CopyFrom(request.Content)" )
-            } Else {
-                
-                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "; To implement.  There is no code generation for this case.")
-                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "$$$ThrowStatus($$$ERROR($$$NotImplemented))")
-            }
-
-            Do methodDef.Implementation.WriteLine( $Char(9) _ "}")
-
-        } Else {
-            Do methodDef.Implementation.WriteLine( $Char(9) _ condition _" {")
-            Do methodDef.Implementation.WriteLine( $Char(9,9) _ "; To implement.  There is no code generation yet for this case.")
-            Do methodDef.Implementation.WriteLine( $Char(9,9) _ "$$$ThrowStatus($$$ERROR($$$NotImplemented))")
-            Do methodDef.Implementation.WriteLine( $Char(9) _ "}")
         }
-        
+
     }
 
     Do methodDef.Implementation.WriteLine( $Char(9) _ "Quit sc")
@@ -529,7 +507,7 @@ Method GenerateRequestValidate(path As %String, pathItem As %DynamicObject, meth
         Quit:key=""
 
         
-        If property.Name?1"body"0.1N, bodyRequired {
+        If ..isBodyProperty(property.Name, operation), bodyRequired {
 
             Set contentTypeList = ..GetContentTypeListForProperty(property.Name, operation)
 
