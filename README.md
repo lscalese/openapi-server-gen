@@ -7,6 +7,7 @@
 # openapi-server-gen
 
 This is a library to generate server-side REST classes for intersystems IRIS.  
+openapi-server-gen is piece of a bigger project openapi-suite ( [OEX Link](https://openexchange.intersystems.com/package/OpenAPI-Suite) - [GitHub](https://github.com/lscalese/openapi-suite) ).
 
 
 ## Installation zpm
