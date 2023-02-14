@@ -212,6 +212,35 @@ Method GenerateLoadFromRequestMethod(path As %String, pathItem As %DynamicObject
 
                 Do methodDef.Implementation.WriteLine( $Char(9) _ "}")
 
+            } ElseIf $$$LOWER(contentType) [ "application/xml" {
+                
+                Do methodDef.Implementation.WriteLine( $Char(9) _ condition _ "{")
+
+                Set xmlTagName = propDef.Parameters.GetAt("XMLNAME")
+                Set xmlItemName = propDef.Parameters.GetAt("XMLITEMNAME")
+                If xmlTagName = "" Set xmlTagName = propDef.Name
+                If xmlItemName = "" Set xmlItemName = propDef.Name
+                
+
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Set reader = ##class(%XML.Reader).%New()" )
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "$$$QuitOnError(reader.OpenStream(request.Content))")
+
+                If propDef.Collection = ""{
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do reader.Correlate(""" _ xmlTagName _ """,""" _ propDef.Type _""")" )
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do reader.Next(." _ $$$zNormalizeClassName(propDef.Name) _ ", .sc)" )
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "If $$$ISERR(sc) Quit sc" )
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Set .." _ $$$zNormalizeClassName(propDef.Name) _ " = " _ $$$zNormalizeClassName(propDef.Name) )
+                } Else {
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Do reader.Correlate(""" _ xmlItemName _ """,""" _ propDef.Type _""")" )
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "While reader.Next(." _ $$$zNormalizeClassName(propDef.Name) _ ", .sc) {" )
+                    Do methodDef.Implementation.WriteLine( $Char(9,9,9) _ "Return:$$$ISERR(sc) sc")
+                    Do methodDef.Implementation.WriteLine( $Char(9,9,9) _ "Do ..ListOf" _ $$$zNormalizeClassName(propDef.Name) _ ".Insert(" _ $$$zNormalizeClassName(propDef.Name) _ ")" )
+                    Do methodDef.Implementation.WriteLine( $Char(9,9) _ "}" )
+                }
+                
+                Do methodDef.Implementation.WriteLine( $Char(9,9) _ "Return sc")
+                Do methodDef.Implementation.WriteLine( $Char(9) _ "}")
+
             } Else {
                 Do methodDef.Implementation.WriteLine( $Char(9) _ condition _" {")
                 Do methodDef.Implementation.WriteLine( $Char(9,9) _ "; To implement.  There is no code generation yet for this case.")
