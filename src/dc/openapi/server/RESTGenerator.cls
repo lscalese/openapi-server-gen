@@ -3,7 +3,7 @@ Class dc.openapi.server.RESTGenerator Extends (%RegisteredObject, dc.openapi.com
 
 Parameter ROUTETEMPLATE = "  <Route Url=""%1"" Method=""%2"" Call=""%3"" />";
 
-Property superModel As %String [ InitialExpression = "%RegisteredObject" ];
+Property superModel As %String [ InitialExpression = "%JSON.Adaptor,%RegisteredObject" ];
 
 Property restClassName As %String;
 
@@ -15,7 +15,9 @@ Property routes As %Stream.GlobalCharacter [ Private ];
 
 Property tmp As %String [ Private ];
 
-Method %OnNew(specification As %DynamicObject, application) As %Status
+Method %OnNew(
+	specification As %DynamicObject,
+	application) As %Status
 {
     Set sc = $$$OK
 
@@ -72,7 +74,11 @@ Method GenerateModels() As %Status
     Quit sc
 }
 
-Method GenerateLoadFromRequestMethod(path As %String, pathItem As %DynamicObject, method As %String, operation As %DynamicObject) As %Status
+Method GenerateLoadFromRequestMethod(
+	path As %String,
+	pathItem As %DynamicObject,
+	method As %String,
+	operation As %DynamicObject) As %Status
 {
     Set sc = $$$OK
     #dim propDef As %Dictionary.PropertyDefinition
@@ -347,7 +353,11 @@ Method GenerateImpl() As %Status
     Quit sc
 }
 
-Method AddImplMethod(path As %String, pathItem As %DynamicObject, method As %String, operation As %DynamicObject) As %Status
+Method AddImplMethod(
+	path As %String,
+	pathItem As %DynamicObject,
+	method As %String,
+	operation As %DynamicObject) As %Status
 {
     Set sc = $$$OK
     Set className = ..implClassName, messageRequestClass = ..packageRequest _ "." _ operation.operationId
@@ -412,12 +422,20 @@ Method AddImplSwaggerSpec() As %Status
     Quit sc
 }
 
-Method AddRoute(path As %String, pathItem As %DynamicObject, method As %String, operation As %DynamicObject) As %Status
+Method AddRoute(
+	path As %String,
+	pathItem As %DynamicObject,
+	method As %String,
+	operation As %DynamicObject) As %Status
 {
     Quit ..routes.WriteLine($$$FormatText(..#ROUTETEMPLATE, $Translate(path, "{}", ":"), $ZConvert(method, "U"), operation.operationId))
 }
 
-Method AddDispMethod(path As %String, pathItem As %DynamicObject, method As %String, operation As %DynamicObject) As %Status
+Method AddDispMethod(
+	path As %String,
+	pathItem As %DynamicObject,
+	method As %String,
+	operation As %DynamicObject) As %Status
 {
     Set className = ..restClassName, messageRequestClass = ..packageRequest _ "." _ operation.operationId
 
@@ -497,7 +515,11 @@ Method AddDispMethod(path As %String, pathItem As %DynamicObject, method As %Str
     Quit sc
 }
 
-Method GenerateRequestValidate(path As %String, pathItem As %DynamicObject, method As %String, operation As %DynamicObject) As %Status
+Method GenerateRequestValidate(
+	path As %String,
+	pathItem As %DynamicObject,
+	method As %String,
+	operation As %DynamicObject) As %Status
 {
     Set sc = $$$OK
     #dim propDef As %Dictionary.PropertyDefinition
@@ -597,7 +619,13 @@ Method AddDispSwaggerSpec() As %Status
     Quit sc
 }
 
-Method AlimCheckAccept(path As %String, pathItem As %DynamicObject, method As %String, operation As %DynamicObject, response As %String, responseItem As %DynamicObject) As %Status
+Method AlimCheckAccept(
+	path As %String,
+	pathItem As %DynamicObject,
+	method As %String,
+	operation As %DynamicObject,
+	response As %String,
+	responseItem As %DynamicObject) As %Status
 {
     Set sc = $$$OK
 
@@ -612,7 +640,9 @@ Method AlimCheckAccept(path As %String, pathItem As %DynamicObject, method As %S
     Quit sc
 }
 
-ClassMethod AlimPathParamList(path As %String, Output paramList As %Binary) As %Status
+ClassMethod AlimPathParamList(
+	path As %String,
+	Output paramList As %Binary) As %Status
 {
     Set matcher = ##class(%Regex.Matcher).%New("\{([^{}]*)\}") 
     Set matcher.Text = path
