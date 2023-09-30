@@ -6,6 +6,8 @@
 
 # openapi-server-gen
 
+**Important** : **To make maintenance easier, this package has been merged with  [openapi-suite](https://openexchange.intersystems.com/package/OpenAPI-Suite) ( [Link to GitHub repository](https://github.com/lscalese/openapi-suite) ).  Consider this package deprecated and replaced by openapi-suite (classes have kept the same name)**
+
 This is a library to generate server-side REST classes for intersystems IRIS.  
 openapi-server-gen is piece of a bigger project openapi-suite ( [OEX Link](https://openexchange.intersystems.com/package/OpenAPI-Suite) - [GitHub](https://github.com/lscalese/openapi-suite) ).
 
